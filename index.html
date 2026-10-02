@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Substrate Disruption Propagation Model</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, 'SF Pro Display', system-ui, 'Segoe UI', sans-serif;
+  background: #0a0f14; color: #d0d8e0; overflow-x: hidden;
+}
+
+/* HEADER */
+#header {
+  background: linear-gradient(135deg, #0d1520 0%, #131f2e 100%);
+  border-bottom: 1px solid #1a2a3a;
+  padding: 20px 32px 16px;
+}
+#header h1 { font-size: 22px; font-weight: 700; color: #fff; }
+#header h1 span { color: #e31937; }
+#header .subtitle { font-size: 13px; color: #5a7a8a; margin-top: 4px; }
+
+/* TOOLBAR */
+#toolbar {
+  display: flex; align-items: center; gap: 10px; padding: 12px 32px;
+  background: #0d1520; border-bottom: 1px solid #1a2a3a;
+}
+.btn {
+  background: rgba(20,35,55,0.9); border: 1px solid #2a3a4a; border-radius: 8px;
+  color: #8899aa; padding: 8px 16px; font-size: 12px; cursor: pointer;
+  transition: all 0.2s; font-family: inherit; white-space: nowrap;
+}
+.btn:hover { background: rgba(40,60,80,0.9); color: #fff; border-color: #3a5a7a; }
+.btn-danger { border-color: #e31937; color: #e31937; }
+.btn-danger:hover { background: rgba(227,25,55,0.2); color: #ff4060; }
+.btn-danger.active { background: rgba(227,25,55,0.3); color: #ff4060; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(227,25,55,0.4); } 50% { box-shadow: 0 0 12px 4px rgba(227,25,55,0.2); } }
+.btn-reset { border-color: #4a9a4a; color: #4a9a4a; }
+.btn-reset:hover { background: rgba(74,154,74,0.2); }
+#sim-status { font-size: 12px; color: #5a7a8a; margin-left: auto; }
+#sim-week { color: #e31937; font-weight: 700; font-size: 14px; }
+
+/* TIMELINE */
+#timeline {
+  position: relative; height: 40px; margin: 0 32px;
+  background: #0d1520; border-bottom: 1px solid #1a2a3a;
+}
+.tl-bar { position: absolute; top: 18px; left: 0; right: 0; height: 3px; background: #1a2a3a; border-radius: 2px; }
+.tl-progress { position: absolute; top: 18px; left: 0; height: 3px; background: #e31937; border-radius: 2px; width: 0; transition: width 0.5s; box-shadow: 0 0 10px rgba(227,25,55,0.5); }
+.tl-mark {
+  position: absolute; top: 8px; transform: translateX(-50%);
+  font-size: 10px; color: #4a6a7a; text-align: center;
+}
+.tl-mark .dot { width: 8px; height: 8px; border-radius: 50%; background: #1a2a3a; margin: 0 auto 3px; border: 1px solid #2a3a4a; }
+.tl-mark.hit .dot { background: #e31937; border-color: #e31937; box-shadow: 0 0 8px rgba(227,25,55,0.5); }
+
+/* MAIN GRAPH AREA */
+#graph {
+  position: relative; min-height: calc(100vh - 160px); padding: 24px 32px;
+  overflow-y: auto;
+}
+
+/* TIER COLUMNS */
+.tier-columns { display: flex; gap: 12px; min-height: 700px; }
+.tier-col {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0;
+  position: relative;
+}
+.tier-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #3a5a6a;
+  margin-bottom: 12px; text-align: center; padding: 4px 12px;
+  border: 1px solid #1a2a3a; border-radius: 20px; background: rgba(15,25,35,0.8);
+  white-space: nowrap;
+}
+.tier-nodes { display: flex; flex-direction: column; gap: 10px; width: 100%; align-items: center; }
+
+/* NODES */
+.node {
+  position: relative; width: 180px; padding: 12px 14px; border-radius: 10px;
+  background: rgba(15,30,45,0.9); border: 1px solid #1a3a4a;
+  cursor: pointer; transition: all 0.3s; z-index: 2;
+}
+.node:hover { border-color: #3a6a8a; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.node.selected { border-color: #e31937; box-shadow: 0 0 16px rgba(227,25,55,0.3); }
+.node .name { font-size: 13px; font-weight: 600; color: #e0e8f0; margin-bottom: 3px; }
+.node .role { font-size: 10px; color: #5a7a8a; line-height: 1.3; }
+.node .country { font-size: 9px; color: #3a5a6a; margin-top: 4px; }
+.node .score-badge {
+  position: absolute; top: 8px; right: 8px; font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 4px;
+}
+.node .buffer-badge {
+  position: absolute; bottom: 8px; right: 8px; font-size: 9px;
+  padding: 2px 6px; border-radius: 4px; background: rgba(74,154,74,0.2);
+  color: #6aba6a; border: 1px solid rgba(74,154,74,0.3);
+}
+.score-critical { background: rgba(227,25,55,0.2); color: #ff4060; border: 1px solid rgba(227,25,55,0.3); }
+.score-high { background: rgba(255,152,0,0.2); color: #ffa040; border: 1px solid rgba(255,152,0,0.3); }
+.score-moderate { background: rgba(255,193,7,0.2); color: #ffc107; border: 1px solid rgba(255,193,7,0.3); }
+.score-low { background: rgba(74,154,74,0.2); color: #6aba6a; border: 1px solid rgba(74,154,74,0.3); }
+
+/* SIMULATION STATES */
+.node.sim-safe { border-color: #2a6a2a; background: rgba(15,40,20,0.9); }
+.node.sim-warning { border-color: #c9a000; background: rgba(50,40,10,0.9); animation: warnPulse 1.5s infinite; }
+@keyframes warnPulse { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 12px rgba(201,160,0,0.3); } }
+.node.sim-stopped { border-color: #e31937; background: rgba(60,10,15,0.9); box-shadow: 0 0 20px rgba(227,25,55,0.3); }
+.node.sim-stopped .name { color: #ff4060; }
+.node.sim-offline { border-color: #888; background: rgba(40,40,40,0.9); opacity: 0.6; }
+.node.sim-offline .name { color: #999; text-decoration: line-through; }
+
+/* SVG EDGES */
+#edges-svg {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 1;
+}
+.edge-line { stroke: #1a3a4a; stroke-width: 1.5; fill: none; opacity: 0.5; }
+.edge-line.abf { stroke: #e31937; opacity: 0.4; stroke-dasharray: 6 3; }
+.edge-line.sim-active { stroke: #e31937; opacity: 0.8; stroke-width: 2; }
+.edge-line.highlighted { stroke: #3a8aba; opacity: 0.8; stroke-width: 2.5; }
+
+/* DETAIL PANEL */
+#detail-panel {
+  position: fixed; top: 0; right: -480px; width: 480px; height: 100vh;
+  background: #0d1520; border-left: 1px solid #1a2a3a;
+  z-index: 100; overflow-y: auto; transition: right 0.3s;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.5);
+}
+#detail-panel.open { right: 0; }
+.panel-header {
+  position: sticky; top: 0; background: #0d1520; border-bottom: 1px solid #1a2a3a;
+  padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 2;
+}
+.panel-close { background: none; border: none; color: #6a8a9a; font-size: 24px; cursor: pointer; padding: 0 8px; }
+.panel-close:hover { color: #fff; }
+.panel-body { padding: 0 24px 24px; }
+.panel-section { margin-top: 20px; }
+.panel-section h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #3a6a7a;
+  margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #1a2a3a;
+}
+.evidence-item {
+  background: rgba(15,25,40,0.8); border: 1px solid #1a2a3a; border-radius: 8px;
+  padding: 12px; margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+}
+.evidence-item .tag {
+  display: inline-block; font-size: 9px; font-weight: 700; padding: 1px 5px;
+  border-radius: 3px; margin-right: 4px;
+}
+.tag-p { background: rgba(33,150,243,0.2); color: #4aa3f3; }
+.tag-i { background: rgba(255,152,0,0.2); color: #ffa040; }
+.tag-s { background: rgba(156,39,176,0.2); color: #c060d0; }
+.src-filing { background: rgba(33,150,243,0.2); color: #4aa3f3; border: 1px solid rgba(33,150,243,0.3); }
+.src-press { background: rgba(76,175,80,0.2); color: #6aba6a; border: 1px solid rgba(76,175,80,0.3); }
+.src-website { background: rgba(255,193,7,0.2); color: #ffc107; border: 1px solid rgba(255,193,7,0.3); }
+.src-industry { background: rgba(156,39,176,0.2); color: #c060d0; border: 1px solid rgba(156,39,176,0.3); }
+.src-inferred { background: rgba(255,87,34,0.2); color: #ff7043; border: 1px solid rgba(255,87,34,0.3); }
+.evidence-item a { color: #4a9af5; text-decoration: none; }
+.evidence-item a:hover { text-decoration: underline; }
+.doc-link {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: rgba(20,40,60,0.8); border: 1px solid #1a3a4a; border-radius: 6px;
+  margin-bottom: 6px; text-decoration: none; color: #8aa0b0; font-size: 11px;
+  transition: all 0.2s;
+}
+.doc-link:hover { border-color: #3a6a8a; color: #c0d0e0; background: rgba(25,50,75,0.8); }
+.doc-link .icon { font-size: 16px; }
+.supply-path {
+  background: rgba(227,25,55,0.08); border: 1px solid rgba(227,25,55,0.2); border-radius: 8px;
+  padding: 12px; margin-bottom: 8px; font-size: 12px; line-height: 1.6;
+}
+.path-arrow { color: #e31937; margin: 0 6px; }
+
+/* LEGEND (draggable) */
+#legend {
+  position: fixed; bottom: 16px; left: 16px; z-index: 50;
+  background: rgba(13,21,32,0.95); border: 1px solid #1a2a3a; border-radius: 10px;
+  padding: 14px 18px; font-size: 11px; backdrop-filter: blur(8px); max-width: 220px;
+  cursor: grab; user-select: none;
+}
+#legend:active { cursor: grabbing; }
+#legend .drag-handle {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+  cursor: grab;
+}
+#legend .drag-hint { font-size: 9px; color: #2a4a5a; }
+#legend h3 { font-size: 10px; margin-bottom: 8px; color: #3a6a7a; text-transform: uppercase; letter-spacing: 0.5px; }
+.legend-item { display: flex; align-items: center; margin-bottom: 5px; color: #8a9aaa; font-size: 10px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; flex-shrink: 0; }
+
+/* RANKING TABLE */
+#ranking {
+  margin: 0 32px 32px; background: rgba(13,21,32,0.9); border: 1px solid #1a2a3a;
+  border-radius: 10px; overflow: hidden;
+}
+#ranking h2 {
+  font-size: 14px; padding: 14px 20px; background: rgba(227,25,55,0.1);
+  border-bottom: 1px solid #1a2a3a; color: #e0e8f0;
+}
+#ranking table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#ranking th {
+  text-align: left; padding: 10px 16px; color: #4a6a7a; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #1a2a3a;
+}
+#ranking td { padding: 10px 16px; border-bottom: 1px solid #0a1520; color: #a0b0c0; }
+#ranking tr:hover td { background: rgba(30,50,70,0.3); }
+#ranking .rank { font-weight: 700; color: #e31937; font-size: 14px; }
+.stoppage-bar {
+  display: inline-block; height: 8px; border-radius: 4px; background: #e31937;
+  margin-right: 6px; vertical-align: middle; min-width: 4px;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1><span>Substrate Disruption</span> Propagation Model</h1>
+  <div class="subtitle">Taiwan Tier 2 advanced packaging substrate factory offline for 4 weeks &mdash; which European auto supplier stops first?</div>
+</div>
+
+<div id="toolbar">
+  <select id="scenario-select" onchange="changeScenario()" style="background:rgba(20,35,55,0.9);border:1px solid #2a3a4a;border-radius:8px;color:#e0e8f0;padding:8px 12px;font-size:12px;font-family:inherit;cursor:pointer;min-width:220px;">
+    <option value="all">Scenario: ALL T2 factories offline (worst case)</option>
+    <option value="nanya_pcb">Scenario A: Nan Ya PCB only (13.5% ABF share)</option>
+    <option value="kinsus">Scenario B: Kinsus only (~8% ABF share)</option>
+    <option value="compeq">Scenario C: Compeq only (BT substrates, 10.3%)</option>
+    <option value="subtron">Scenario D: Subtron only (SiP substrates)</option>
+    <option value="boardtek">Scenario E: Boardtek only (IC substrates/PCBs)</option>
+    <option value="phoenix">Scenario F: Phoenix Pioneer only (FCCSP/SiP/FOPLP)</option>
+  </select>
+  <button class="btn btn-danger" id="btn-sim" onclick="toggleSimulation()">Simulate Disruption</button>
+  <button class="btn btn-reset" onclick="resetSimulation()">Reset</button>
+  <button class="btn" onclick="highlightCriticalPath()">Show Critical Path</button>
+  <button class="btn" id="btn-defs" onclick="toggleDefinitions()" style="border-color:#4a9af5;color:#4a9af5;">Tier Definitions</button>
+  <div id="sim-status">Ready &mdash; select a scenario and click Simulate</div>
+</div>
+
+<!-- TIER DEFINITIONS PANEL -->
+<div id="tier-defs" style="display:none;margin:0 32px;background:rgba(13,21,32,0.95);border:1px solid #1a2a3a;border-radius:0 0 10px 10px;overflow:hidden;">
+  <div style="padding:16px 20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h2 style="font-size:14px;color:#e0e8f0;">How "Tier 2" is defined &mdash; and why it matters</h2>
+      <button onclick="toggleDefinitions()" style="background:none;border:none;color:#6a8a9a;font-size:18px;cursor:pointer;">&times;</button>
+    </div>
+    <div style="font-size:12px;line-height:1.7;color:#8a9aaa;">
+      <p style="margin-bottom:12px;">The term "Tier 2" is used differently depending on the framework. This model uses the <strong>TSMC-centric</strong> definition from our supply chain data, but the distinction matters for interpreting severity:</p>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px;">
+        <tr style="border-bottom:1px solid #1a2a3a;">
+          <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Framework</th>
+          <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">"Tier 2" means</th>
+          <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Source</th>
+        </tr>
+        <tr style="border-bottom:1px solid #0a1520;background:rgba(227,25,55,0.05);">
+          <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">TSMC Supply Chain (used here)</td>
+          <td style="padding:8px 12px;">Supplier to a TSMC Tier 1 (e.g., supplies Unimicron, not TSMC directly), or smaller substrate maker not in the 3D Fabric Alliance</td>
+          <td style="padding:8px 12px;color:#4a9af5;"><a href="TSMC_Suppliers.csv" target="_blank" style="color:#4a9af5;">TSMC_Suppliers.csv</a></td>
+        </tr>
+        <tr style="border-bottom:1px solid #0a1520;">
+          <td style="padding:8px 12px;color:#c0d0e0;">Market Share (Intel Market Research)</td>
+          <td style="padding:8px 12px;">Companies outside the top 5 by FC-BGA production value</td>
+          <td style="padding:8px 12px;color:#5a7a8a;">ABF Substrate Market Outlook</td>
+        </tr>
+        <tr style="border-bottom:1px solid #0a1520;">
+          <td style="padding:8px 12px;color:#c0d0e0;">Automotive Supply Chain (IATF 16949)</td>
+          <td style="padding:8px 12px;">Supplier to an automotive Tier 1 (Continental, Bosch, ZF), not the OEM directly</td>
+          <td style="padding:8px 12px;color:#5a7a8a;">Industry standard</td>
+        </tr>
+        <tr style="border-bottom:1px solid #0a1520;">
+          <td style="padding:8px 12px;color:#c0d0e0;">Substrate Industry (Yole/TechInsights)</td>
+          <td style="padding:8px 12px;">Mid-sized producers below Unimicron/Ibiden/Shinko class</td>
+          <td style="padding:8px 12px;color:#5a7a8a;">Analyst convention</td>
+        </tr>
+      </table>
+      <div style="background:rgba(255,152,0,0.08);border:1px solid rgba(255,152,0,0.2);border-radius:8px;padding:12px;margin-bottom:12px;">
+        <strong style="color:#ffa040;">Key ambiguity:</strong> Nan Ya PCB is "Tier 2" in the TSMC framework but holds <strong>13.5% global ABF market share</strong> (#3 worldwide). If Nan Ya goes offline, 13.5% of global ABF supply disappears &mdash; that is a major event, not a minor T2 disruption. Conversely, Subtron (merged into Unimicron, makes SiP substrates) going offline is a niche impact.
+      </div>
+      <div style="background:rgba(33,150,243,0.08);border:1px solid rgba(33,150,243,0.2);border-radius:8px;padding:12px;">
+        <strong style="color:#4aa3f3;">Use the scenario selector</strong> above to model each factory individually and see how the propagation speed and impact varies. The "ALL offline" scenario is the worst case; individual scenarios show the realistic range.
+      </div>
+    </div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:11px;border-top:1px solid #1a2a3a;">
+    <tr style="border-bottom:1px solid #1a2a3a;">
+      <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Factory</th>
+      <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Product</th>
+      <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Global Share</th>
+      <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Impact if offline</th>
+      <th style="text-align:left;padding:8px 12px;color:#4a6a7a;font-size:10px;text-transform:uppercase;">Downstream paths</th>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Nan Ya PCB</td>
+      <td style="padding:8px 12px;">ABF Substrates</td>
+      <td style="padding:8px 12px;color:#ff4060;font-weight:600;">13.5%</td>
+      <td style="padding:8px 12px;color:#ff4060;">SEVERE &mdash; mirrors 2021 shortage</td>
+      <td style="padding:8px 12px;">Unimicron, IBIDEN, Shinko &rarr; all EU IDMs</td>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Kinsus</td>
+      <td style="padding:8px 12px;">ABF Substrates</td>
+      <td style="padding:8px 12px;color:#ffa040;font-weight:600;">~5-8%</td>
+      <td style="padding:8px 12px;color:#ffa040;">MODERATE &mdash; 4-8 week squeeze</td>
+      <td style="padding:8px 12px;">Unimicron, AT&S &rarr; Continental, Infineon</td>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Compeq</td>
+      <td style="padding:8px 12px;">BT Substrates; CoWoP PCBs</td>
+      <td style="padding:8px 12px;color:#ffc107;">10.3% (BT only)</td>
+      <td style="padding:8px 12px;color:#ffc107;">MODERATE &mdash; BT ≠ ABF, less auto impact</td>
+      <td style="padding:8px 12px;">Unimicron &rarr; limited auto propagation</td>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Subtron</td>
+      <td style="padding:8px 12px;">SiP Substrates (RF, PBGA)</td>
+      <td style="padding:8px 12px;color:#6aba6a;">&lt;2%</td>
+      <td style="padding:8px 12px;color:#6aba6a;">LOW &mdash; niche, supply reroutable</td>
+      <td style="padding:8px 12px;">Unimicron (internal) &rarr; minimal auto path</td>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Boardtek</td>
+      <td style="padding:8px 12px;">IC Substrates / Server PCBs</td>
+      <td style="padding:8px 12px;color:#6aba6a;">&lt;2%</td>
+      <td style="padding:8px 12px;color:#6aba6a;">LOW &mdash; server-focused, not auto</td>
+      <td style="padding:8px 12px;">AT&S &rarr; Continental (indirect)</td>
+    </tr>
+    <tr style="border-bottom:1px solid #0a1520;">
+      <td style="padding:8px 12px;color:#e0e8f0;font-weight:600;">Phoenix Pioneer</td>
+      <td style="padding:8px 12px;">FCCSP / SiP / xQFN / FOPLP</td>
+      <td style="padding:8px 12px;color:#6aba6a;">&lt;2%</td>
+      <td style="padding:8px 12px;color:#6aba6a;">LOW &mdash; niche packaging, GaN focus</td>
+      <td style="padding:8px 12px;">Unimicron, ASE &rarr; limited auto path</td>
+    </tr>
+  </table>
+</div>
+
+<div id="timeline">
+  <div class="tl-bar"></div>
+  <div class="tl-progress" id="tl-progress"></div>
+</div>
+
+<div id="graph">
+  <svg id="edges-svg"></svg>
+  <div class="tier-columns" id="tier-columns"></div>
+</div>
+
+<div id="ranking"></div>
+
+<div id="detail-panel">
+  <div class="panel-header">
+    <div>
+      <div id="panel-title" style="font-size:18px;font-weight:700;color:#fff;"></div>
+      <div id="panel-subtitle" style="font-size:12px;color:#5a7a8a;margin-top:4px;"></div>
+    </div>
+    <button class="panel-close" onclick="closePanel()">&times;</button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</div>
+
+<div id="legend">
+  <div class="drag-handle"><h3 style="margin:0;">Node Types</h3><span class="drag-hint">drag to move</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e31937;"></div>T2 Factory (Disruption Origin)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ff9800;"></div>T1 Substrate Integrator</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#607d8b;"></div>OSAT / Backend</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2196f3;"></div>European IDM / Chipmaker</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4caf50;"></div>Tier 1 Auto Supplier</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#9c27b0;"></div>OEM Automaker</div>
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1a2a3a;">
+    <div class="legend-item"><div class="legend-dot" style="background:transparent;border:2px solid #e31937;width:8px;height:8px;"></div>ABF chokepoint edge</div>
+    <div style="font-size:9px;color:#3a5a6a;margin-top:6px;">[P] Public &bull; [I] Inferred &bull; [S] Industry std</div>
+  </div>
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid #1a2a3a;">
+    <div style="font-size:9px;color:#4a6a7a;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Link Source Types</div>
+    <div class="legend-item"><span class="tag src-filing" style="font-size:8px;margin-right:6px;">Filing</span>Annual report / 10-K / 20-F</div>
+    <div class="legend-item"><span class="tag src-press" style="font-size:8px;margin-right:6px;">Press</span>Company press release</div>
+    <div class="legend-item"><span class="tag src-website" style="font-size:8px;margin-right:6px;">Website</span>Corporate website</div>
+    <div class="legend-item"><span class="tag src-industry" style="font-size:8px;margin-right:6px;">Industry</span>Market report / analyst</div>
+    <div class="legend-item"><span class="tag src-inferred" style="font-size:8px;margin-right:6px;">Inferred</span>From market structure</div>
+  </div>
+</div>
+
+<script>
+const DATA = {
+  tiers: [
+    { key: 'origin', label: 'T2 Factories (Taiwan)', color: '#e31937' },
+    { key: 'integrator', label: 'T1 Substrate Integrators', color: '#ff9800' },
+    { key: 'osat', label: 'OSAT / Backend', color: '#607d8b' },
+    { key: 'idm', label: 'EU Chipmakers / Tier 1 Auto', color: '#2196f3' },
+    { key: 'oem', label: 'EU OEM Automakers', color: '#9c27b0' },
+  ],
+  nodes: [
+    // T2 FACTORIES (DISRUPTION ORIGIN)
+    { id:'nanya_pcb', tier:'origin', name:'Nan Ya PCB', role:'ABF Substrate Manufacturing', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Tier 2 ABF substrate manufacturer supplying TSMC ecosystem. 13.5% global ABF market share.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+        {tag:'P', text:'Member of TSMC 3D Fabric Alliance substrate partner network.', source:'https://www.asiae.co.kr/en/article/2026043014033228020'},
+      ],
+      docs:[{file:'Unimicron_Annual_Report_2024.pdf', desc:'Competitor/market share context'}],
+    },
+    { id:'kinsus', tier:'origin', name:'Kinsus Interconnect', role:'ABF Substrate Manufacturing (Pegatron Group)', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Top ABF substrate maker, part of Pegatron Group. Invested heavily in ABF production for cloud computing, AI, and 5G.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+      ],
+      docs:[{file:'Unimicron_Annual_Report_2024.pdf', desc:'Market share / competitive landscape'}],
+    },
+    { id:'compeq', tier:'origin', name:'Compeq Manufacturing', role:'BT Substrates; CoWoP PCB development', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'10.3% global BT substrate market share. Named as key supplier for Nvidia CoWoP architecture alongside Unimicron and Zhen Ding.', source:'https://www.globalsmt.net/advanced-packaging/nvidias-cowop-pcb-architecture-targets-abf-substrates-but-faces-warpage-risk/'},
+      ],
+      docs:[],
+    },
+    { id:'subtron', tier:'origin', name:'Subtron Technology', role:'SiP Substrates (merged into Unimicron 2022)', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Manufacturer of RF SiP, PBGA, CSP, TFBGA substrates. Merged into Unimicron Group Feb 2022.', source:'https://www.taipeitimes.com/News/biz/archives/2022/02/23/2003773583'},
+      ],
+      docs:[],
+    },
+    { id:'boardtek', tier:'origin', name:'Boardtek Electronics', role:'IC Substrates (Zhen Ding subsidiary)', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'IC substrate and high-end server PCB manufacturer. Acquired by Zhen Ding Technology (TSMC 3D Fabric Alliance member) in 2020.', source:'https://www.zdtco.com/en/about/group'},
+      ],
+      docs:[],
+    },
+    { id:'phoenix', tier:'origin', name:'Phoenix Pioneer Technology', role:'FCCSP / SiP / xQFN / FOPLP substrates', country:'Taiwan',
+      buffer: 0, bufferConf:'P', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Hsinchu-based IC substrate maker (TWSE:6920). Products: FCCSP, SiP module substrates, xQFN, FC-LGA, ultra-thin substrates. Founded 2013.', source:'https://www.digitimes.com/news/a20241212PD200/phoenix-pioneer-foplp-ic-substrate-packaging-2025.html'},
+        {tag:'P', text:'Developing FOPLP for GaN power applications. Transitioning to advanced packaging substrates for 2025+ growth.', source:'https://www.digitimes.com/news/a20241212PD200/phoenix-pioneer-foplp-ic-substrate-packaging-2025.html'},
+      ],
+      docs:[],
+    },
+
+    // T1 SUBSTRATE INTEGRATORS
+    { id:'unimicron', tier:'integrator', name:'Unimicron Technology', role:'#1 global ABF substrate maker (26.6% share)', country:'Taiwan',
+      buffer: 1, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Largest ABF substrate manufacturer globally with 26.6% market share. Founding member of TSMC 3D Fabric Alliance.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+        {tag:'P', text:'Revenue NT$131,241M for FY2024, up 14% YoY. Major customers include NVIDIA and Apple.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+        {tag:'I', text:'Estimated 1-week WIP buffer based on continuous-flow manufacturing model. Substrate manufacturers operate near-capacity with minimal finished goods inventory.', source:''},
+      ],
+      docs:[
+        {file:'Unimicron_Annual_Report_2024.pdf', desc:'FY2024 Annual Report — revenue, capacity, customers'},
+        {file:'Unimicron_Annual_Report_2023.pdf', desc:'FY2023 Annual Report — detailed substrate capacity disclosures'},
+      ],
+    },
+    { id:'ibiden', tier:'integrator', name:'IBIDEN', role:'ABF substrates + DPF ceramics (14.6% share)', country:'Japan',
+      buffer: 1, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'14.6% global ABF substrate market share. TSMC 3D Fabric Alliance member. Plants in France & Hungary for European DPF supply.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+        {tag:'P', text:'Confirmed DPF supplier to PSA/Stellantis.', source:'https://dieselnet.com/news/2002/10ibiden.php'},
+      ],
+      docs:[],
+    },
+    { id:'shinko', tier:'integrator', name:'Shinko Electric', role:'IC substrates, flip-chip packages (12.8% share)', country:'Japan',
+      buffer: 1, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'12.8% global ABF substrate market share. IATF 16949 + AEC-Q100 certified for automotive.', source:'https://www.shinko.co.jp/english/product/package/'},
+        {tag:'P', text:'TSMC 3D Fabric Alliance member.', source:'https://www.asiae.co.kr/en/article/2026043014033228020'},
+      ],
+      docs:[],
+    },
+    { id:'ats', tier:'integrator', name:'AT&S', role:'Only European ABF substrate maker (8.0% share)', country:'Austria',
+      buffer: 1.5, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'8.0% global ABF substrate market share. Only European IC substrate manufacturer. HTB3 Leoben facility.', source:'https://www.wonderfulpcb.com/blog/top-abf-substrate-manufacturers-and-market-leaders/'},
+        {tag:'P', text:'Confirmed sole-source PCB supplier to Continental for ADAS radar and EV power management.', source:'https://ats.net/en/company/ats-worldwide/'},
+        {tag:'P', text:'Revenue increased in FY2024/25 in challenging market environment.', source:'https://ats.net/en/ir-news/ats-increases-revenue-in-a-challenging-market-environment/'},
+      ],
+      docs:[
+        {file:'AT_S_Annual_Report_2024_25.pdf', desc:'FY2024/25 Annual Report — capacity, customers, European substrate strategy'},
+      ],
+    },
+
+    // OSAT / BACKEND
+    { id:'ase', tier:'osat', name:'ASE Technology', role:'World\'s largest OSAT', country:'Taiwan',
+      buffer: 2, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Acquired Infineon\'s Cavite (Philippines) + Cheonan (South Korea) backend sites.', source:'https://investor.tsmc.com/static/annualReports/2022/english/ebook/files/basic-html/page106.html'},
+        {tag:'I', text:'~2 weeks WIP buffer estimated from OSAT pipeline depth and packaging cycle times.', source:''},
+      ],
+      docs:[],
+    },
+    { id:'amkor', tier:'osat', name:'Amkor Technology', role:'#2 OSAT — Amkor Porto partnership', country:'USA',
+      buffer: 2, bufferConf:'I', score: null, scoreLabel: null,
+      evidence:[
+        {tag:'P', text:'Amkor Porto partnership with Infineon for European backend capacity.', source:'https://www.businesswire.com/news/home/20260616574153/en/'},
+        {tag:'I', text:'~2 weeks WIP buffer estimated from OSAT pipeline depth.', source:''},
+      ],
+      docs:[],
+    },
+
+    // EUROPEAN CHIPMAKERS / TIER 1
+    { id:'continental', tier:'idm', name:'Continental AG', role:'Fabless AESS — 100% outsourced packaging', country:'Germany',
+      buffer: 0, bufferConf:'I', score: 18, scoreLabel: 'HIGH',
+      evidence:[
+        {tag:'P', text:'Fabless AESS model means 100% outsourced chip packaging. No in-house backend = zero substrate inventory buffer.', source:'https://www.continental.com/en/press/press-releases/20250623-aess/'},
+        {tag:'P', text:'AT&S confirmed as sole-source PCB partner for ADAS radar and EV power management.', source:'https://ats.net/en/company/ats-worldwide/'},
+        {tag:'P', text:'GlobalFoundries foundry partner for in-house ADAS/power/radar ICs from mid-2026.', source:'https://www.continental.com/en/press/press-releases/20250623-aess/'},
+        {tag:'P', text:'Affected by Nexperia crisis Oct 2025, demonstrating supply chain vulnerability.', source:'https://www.autonews.com/manufacturing/suppliers/an-zf-bmw-vw-nexperia-trouble-1031/'},
+        {tag:'P', text:'Spin-off of Aumovio (Automotive + Contract Manufacturing) completed Sep 2025. Sales down 2.0% to €19.7B.', source:''},
+        {tag:'I', text:'FIRST TO STOP: fabless structure means zero substrate WIP pipeline. When OSAT buffer depletes (~week 2-3), Continental has no internal stock to bridge.', source:''},
+      ],
+      docs:[
+        {file:'Continental_AG_Annual_Report_2025.pdf', desc:'FY2025 Annual Report — AESS model, supply chain structure, Aumovio spin-off'},
+      ],
+    },
+    { id:'infineon', tier:'idm', name:'Infineon Technologies', role:'Largest EU substrate consumer — divesting backend', country:'Germany',
+      buffer: 3.5, bufferConf:'I', score: 22, scoreLabel: 'CRITICAL',
+      evidence:[
+        {tag:'P', text:'Highest substrate consumption of any European IDM. Revenue €14.7B, 50% automotive (€7.4B). Per Annual Report p.47, 165.', source:'https://www.infineon.com/'},
+        {tag:'P', text:'Divesting backend sites: sold Austin fab to SkyWater (Jun 2025, p.120); selling Bangkok/Nonthaburi to MPI (Sep 2025, p.120-121). Tijuana subsidiary still active (p.171). Increasing OSAT dependency.', source:''},
+        {tag:'P', text:'Amkor Porto partnership for European backend capacity.', source:'https://www.businesswire.com/news/home/20260616574153/en/'},
+        {tag:'P', text:'ESMC JV partner (10% stake) with TSMC in Dresden.', source:'https://pr.tsmc.com/english/news/3049'},
+        {tag:'S', text:'ABF substrates critical for FCBGA packages across entire automotive power + MCU portfolio.', source:''},
+        {tag:'P', text:'Substrate ASPs up 26% YoY 2024-2025 (TrendForce).', source:''},
+        {tag:'I', text:'~3-4 week inventory buffer estimated from backend divestiture reducing internal WIP pipeline. NOT from disclosed inventory data.', source:''},
+      ],
+      docs:[
+        {file:'Infineon_Annual_Report_2025.pdf', desc:'FY2025 Annual Report — backend strategy, inventory, supplier dependencies'},
+        {file:'Infineon_Annual_Report_2024.pdf', desc:'FY2024 Annual Report — prior year DIO comparison'},
+      ],
+    },
+    { id:'nxp', tier:'idm', name:'NXP Semiconductors', role:'Hybrid model — "limited substrate suppliers"', country:'Netherlands',
+      buffer: 2.5, bufferConf:'P', score: 19, scoreLabel: 'HIGH',
+      evidence:[
+        {tag:'P', text:'"Limited number of substrate suppliers" — direct quote from NXP 10-K risk factors section.', source:''},
+        {tag:'P', text:'Revenue $12.27B in FY2025. 58% automotive revenue ($7.1B). Per NXP 10-K p.39-40.', source:''},
+        {tag:'P', text:'Raw wafers + substrates sourced from concentrated supplier base (NXP 10-K).', source:''},
+        {tag:'P', text:'ESMC JV partner (10% stake) with TSMC in Dresden.', source:'https://pr.tsmc.com/english/news/3049'},
+        {tag:'P', text:'Acquired TTTech Auto ($766M, Jun 2025) and Aviva Links ($222M, Oct 2025).', source:''},
+        {tag:'I', text:'~2-3 week substrate buffer. Hybrid model with some in-house assembly provides partial buffer.', source:''},
+      ],
+      docs:[
+        {file:'NXP_10K_2025.pdf', desc:'FY2025 10-K — risk factors re: substrate suppliers, inventory data, auto revenue'},
+        {file:'NXP_10K_2024.pdf', desc:'FY2024 10-K — prior year comparison'},
+      ],
+    },
+    { id:'stmicro', tier:'idm', name:'STMicroelectronics', role:'7 in-house backend sites; SiC vertical integration', country:'Switzerland',
+      buffer: 3, bufferConf:'I', score: 17, scoreLabel: 'MOD-HIGH',
+      evidence:[
+        {tag:'P', text:'7 in-house backend sites: Rennes, Marcianise, Bouskoura, Kirkop, Shenzhen, Calamba, Muar.', source:''},
+        {tag:'P', text:'SiC vertical integration: Norstel + Soitec + Catania + $3.2B Sanan JV in China.', source:'https://compoundsemiconductor.net/article/117486/The_growth_of_power_SiC_partnerships'},
+        {tag:'S', text:'Logic/MCU products still require ABF substrates despite SiC independence.', source:''},
+        {tag:'P', text:'>40% revenue from automotive.', source:''},
+        {tag:'I', text:'~3 week substrate buffer from 7 distributed backend sites holding WIP. NOT from disclosed inventory data.', source:''},
+      ],
+      docs:[
+        {file:'STMicro_20F_2025.htm', desc:'FY2025 20-F (SEC EDGAR) — backend sites, SiC strategy, inventory metrics'},
+      ],
+    },
+    { id:'bosch', tier:'idm', name:'Robert Bosch', role:'Most vertically integrated — in-house MEMS + fabs', country:'Germany',
+      buffer: 5.5, bufferConf:'I', score: 14, scoreLabel: 'MODERATE',
+      evidence:[
+        {tag:'P', text:'Most vertically integrated European auto supplier. Sales €91.0B in FY2025.', source:''},
+        {tag:'P', text:'100% in-house MEMS sensor manufacturing. Proprietary DRIE process.', source:'https://www.bosch-semiconductors.com/products/mems-sensors/'},
+        {tag:'P', text:'Owns frontend fabs: Reutlingen, Dresden, Roseville. Backend/test: Reutlingen, Penang, Suzhou, Hatvan.', source:'https://www.bosch-semiconductors.com/about-us/who-we-are/'},
+        {tag:'P', text:'ESMC JV partner (10% stake) with TSMC in Dresden.', source:'https://pr.tsmc.com/english/news/3049'},
+        {tag:'S', text:'Power/MEMS packages primarily use leadframes, not ABF substrates. Lower ABF dependency.', source:''},
+        {tag:'I', text:'~5-6 week buffer — deepest of any EU player, from maximum vertical integration. Most pipeline stages held internally.', source:''},
+      ],
+      docs:[
+        {file:'Bosch_Annual_Report_2025.pdf', desc:'FY2025 Annual Report — vertical integration, semiconductor strategy'},
+        {file:'Bosch_Annual_Report_2024.pdf', desc:'FY2024 Annual Report — prior year comparison'},
+      ],
+    },
+
+    // EUROPEAN OEMs
+    { id:'vw', tier:'oem', name:'Volkswagen Group', role:'Largest EU OEM ~9M vehicles/yr', country:'Germany',
+      buffer: 8, bufferConf:'I', score: 19, scoreLabel: 'HIGH',
+      evidence:[
+        {tag:'P', text:'Largest European OEM by volume ~9M vehicles/year. Multi-brand: VW, Audi, Porsche, Bentley, Lamborghini, SEAT, Skoda, Ducati.', source:''},
+        {tag:'P', text:'Already impacted by Nexperia crisis via ZF, Oct 2025.', source:'https://www.autonews.com/manufacturing/suppliers/an-zf-bmw-vw-nexperia-trouble-1031/'},
+        {tag:'P', text:'Order intake for vehicles in Europe increased ~13% vs 2024. Operating margin 4.6% adjusted for restructuring.', source:''},
+        {tag:'I', text:'Zero substrate sourcing control. Cascade lag of 6-12 weeks before substrate disruption reaches OEM production — calibrated from Nexperia propagation timeline.', source:''},
+      ],
+      docs:[
+        {file:'VW_Group_Annual_Report_2025.pdf', desc:'FY2025 Annual Report — volume, supplier dependencies, Nexperia impact'},
+      ],
+    },
+    { id:'bmw', tier:'oem', name:'BMW Group', role:'Premium OEM — exposed via ZF/Nexperia', country:'Germany',
+      buffer: 8, bufferConf:'I', score: 18, scoreLabel: 'HIGH',
+      evidence:[
+        {tag:'P', text:'Zero semiconductor manufacturing. Fully dependent on ZF, Continental, Bosch for packaged components.', source:''},
+        {tag:'P', text:'Already affected by Nexperia crisis Oct 2025 via ZF. Demonstrated real-world cascade vulnerability.', source:'https://www.autonews.com/manufacturing/suppliers/an-zf-bmw-vw-nexperia-trouble-1031/'},
+        {tag:'P', text:'GlobalFoundries direct supply agreement for chip security.', source:'https://www.autonews.com/manufacturing/suppliers/an-zf-bmw-vw-nexperia-trouble-1031/'},
+        {tag:'P', text:'Proposed dividend of €4.42 per preferred share for FY2025.', source:''},
+        {tag:'I', text:'Substrate disruption cascades through 3-4 tiers with 6-12 week lag. Calibrated from Nexperia crisis propagation timeline.', source:''},
+      ],
+      docs:[
+        {file:'BMW_Group_Report_2025.pdf', desc:'FY2025 Group Report — supplier dependencies, financial performance'},
+      ],
+    },
+    { id:'stellantis', tier:'oem', name:'Stellantis', role:'€10B+ chip agreements — zero mfg control', country:'Netherlands',
+      buffer: 8, bufferConf:'I', score: 18, scoreLabel: 'HIGH',
+      evidence:[
+        {tag:'P', text:'OEM with zero semiconductor manufacturing. 100% dependent on Tier 1 suppliers: Infineon, STMicro, NXP, onsemi, Qualcomm.', source:'https://www.stellantis.com/en/news/press-releases/2023/july/stellantis-implements-multifaceted-semiconductor-strategy-to-ensure-supply-security-drive-innovation'},
+        {tag:'P', text:'€10B+ chip agreements through 2030.', source:'https://www.stellantis.com/en/news/press-releases/2023/july/stellantis-implements-multifaceted-semiconductor-strategy-to-ensure-supply-security-drive-innovation'},
+        {tag:'P', text:'258,668 employees at Dec 31, 2025. EU30 market share 16% (2nd place).', source:''},
+        {tag:'I', text:'Cannot substitute substrate suppliers — must wait for Tier 1s to resolve. Cascade lag 6-12 weeks.', source:''},
+      ],
+      docs:[
+        {file:'Stellantis_20F_Annual_Report_2025.pdf', desc:'FY2025 20-F / Annual Report — semiconductor strategy, supplier agreements'},
+      ],
+    },
+  ],
+
+  edges: [
+    // T2 → T1 (substrate supply)
+    {from:'nanya_pcb', to:'unimicron', label:'ABF substrates', abf:true, srcType:'Industry Report', srcDetail:'WonderfulPCB market report; TSMC 3D Fabric Alliance disclosure'},
+    {from:'kinsus', to:'unimicron', label:'ABF substrates', abf:true, srcType:'Industry Report', srcDetail:'WonderfulPCB market report'},
+    {from:'compeq', to:'unimicron', label:'BT substrates', srcType:'Press Release', srcDetail:'Nvidia CoWoP supplier announcement (GlobalSMT)'},
+    {from:'subtron', to:'unimicron', label:'SiP substrates (internal)', srcType:'Filing', srcDetail:'Taipei Times: Unimicron/Subtron merger Feb 2022'},
+    {from:'boardtek', to:'ats', label:'IC substrates / PCBs', srcType:'Inferred', srcDetail:'Boardtek is Zhen Ding subsidiary; Zhen Ding is TSMC 3D Fabric Alliance member'},
+    {from:'nanya_pcb', to:'ibiden', label:'ABF substrates', abf:true, srcType:'Industry Report', srcDetail:'WonderfulPCB ABF market analysis; Prismark data'},
+    {from:'nanya_pcb', to:'shinko', label:'ABF substrates', abf:true, srcType:'Industry Report', srcDetail:'WonderfulPCB ABF market analysis'},
+    {from:'kinsus', to:'ats', label:'ABF substrates', abf:true, srcType:'Inferred', srcDetail:'Both are ABF substrate manufacturers in TSMC ecosystem; supply relationship inferred'},
+    {from:'phoenix', to:'unimicron', label:'FCCSP / SiP substrates', srcType:'Inferred', srcDetail:'Both Taiwan-based substrate makers; Phoenix Pioneer FCCSP products feed packaging ecosystem'},
+    {from:'phoenix', to:'ase', label:'Packaging substrates (OSAT supply)', srcType:'Inferred', srcDetail:'ASE is dominant OSAT; Phoenix Pioneer substrates feed packaging pipeline'},
+
+    // T1 → OSAT
+    {from:'unimicron', to:'ase', label:'Packaged substrates', srcType:'Industry Report', srcDetail:'TSMC Annual Report 2022 supplier list; TSMC 3D Fabric Alliance (Asia Business Daily)'},
+    {from:'ibiden', to:'ase', label:'IC substrates', srcType:'Industry Report', srcDetail:'TSMC 3D Fabric Alliance member list; industry standard substrate→OSAT flow'},
+    {from:'shinko', to:'ase', label:'Flip-chip packages', srcType:'Industry Report', srcDetail:'TSMC 3D Fabric Alliance; Shinko IATF 16949 packaging products'},
+    {from:'unimicron', to:'amkor', label:'Packaged substrates', srcType:'Inferred', srcDetail:'Amkor is #2 OSAT; Unimicron substrates feed OSAT packaging pipeline'},
+    {from:'ibiden', to:'amkor', label:'IC substrates', srcType:'Inferred', srcDetail:'IBIDEN substrates feed OSAT packaging pipeline'},
+
+    // T1 → EU IDMs (direct substrate supply)
+    {from:'ats', to:'continental', label:'HDI PCBs — ADAS radar + EV (confirmed sole-source)', abf:true, srcType:'Website', srcDetail:'AT&S corporate website (ats.net/en/company/ats-worldwide); Continental not named in AT&S filing'},
+    {from:'ats', to:'infineon', label:'IC substrates (only EU producer)', srcType:'Website', srcDetail:'AT&S website; only European ABF substrate maker. Infineon names no substrate suppliers in filing'},
+    {from:'ats', to:'nxp', label:'IC substrates', srcType:'Inferred', srcDetail:'AT&S is only EU substrate maker; NXP 10-K says "limited number of substrate suppliers" (p.9,21) but names none'},
+    {from:'ats', to:'bosch', label:'Automotive PCBs', srcType:'Website', srcDetail:'AT&S website; Bosch annual report does not name PCB suppliers'},
+    {from:'shinko', to:'infineon', label:'IC substrates (IATF 16949 + AEC-Q100)', srcType:'Website', srcDetail:'Shinko product website (shinko.co.jp); Infineon names no substrate suppliers in filing'},
+    {from:'ibiden', to:'infineon', label:'ABF IC substrates', srcType:'Inferred', srcDetail:'IBIDEN is #2 global ABF maker; Infineon is largest EU substrate consumer. Link inferred from market structure'},
+    {from:'ibiden', to:'nxp', label:'IC substrates', srcType:'Inferred', srcDetail:'Inferred from IBIDEN market position and NXP 10-K "limited suppliers" disclosure'},
+    {from:'shinko', to:'nxp', label:'IC substrates', srcType:'Inferred', srcDetail:'Inferred from Shinko auto certifications and NXP substrate dependency'},
+    {from:'ibiden', to:'stmicro', label:'IC substrates', srcType:'Inferred', srcDetail:'Inferred from IBIDEN market position; STMicro names no substrate suppliers in 20-F'},
+    {from:'shinko', to:'stmicro', label:'IC substrates', srcType:'Inferred', srcDetail:'Inferred from Shinko auto certifications; STMicro names no substrate suppliers in 20-F'},
+
+    // OSAT → EU IDMs
+    {from:'ase', to:'infineon', label:'Packaged chips (acquired IFX backend sites)', srcType:'Filing', srcDetail:'Infineon AR 2025 p.120-121: backend divestiture (Austin→SkyWater, Bangkok→MPI). ASE acquisition of Cavite/Cheonan from earlier press releases'},
+    {from:'amkor', to:'infineon', label:'Packaged chips (Amkor Porto partnership)', srcType:'Press Release', srcDetail:'Amkor/Infineon press release (BusinessWire Jun 2026). Infineon AR shows Porto subsidiary (p.170) but does not name Amkor'},
+    {from:'ase', to:'nxp', label:'Packaged chips', srcType:'Inferred', srcDetail:'ASE is largest OSAT; NXP outsources packaging. Specific relationship inferred from market structure'},
+
+    // EU IDMs / Tier 1 → OEMs
+    {from:'continental', to:'bmw', label:'ADAS modules / brake systems', srcType:'Inferred', srcDetail:'BMW names no Tier 1 suppliers in annual report. Continental→BMW inferred from industry structure'},
+    {from:'continental', to:'vw', label:'ADAS / body electronics', srcType:'Inferred', srcDetail:'VW names no Tier 1 suppliers in annual report. Continental→VW inferred from industry structure'},
+    {from:'infineon', to:'bmw', label:'Power semis / SiC / MCUs (via Bosch/Continental)', srcType:'Inferred', srcDetail:'BMW names no chip suppliers. Infineon is largest EU auto chipmaker; link inferred'},
+    {from:'infineon', to:'vw', label:'Power management / SiC / MCUs', srcType:'Inferred', srcDetail:'VW mentions "strategic semiconductor management" (AR p.140) but names no suppliers'},
+    {from:'infineon', to:'stellantis', label:'Power semis (€1B+ deal from 2025)', srcType:'Press Release', srcDetail:'Stellantis semiconductor strategy press release Jul 2023. NOT in Stellantis 20-F filing'},
+    {from:'nxp', to:'continental', label:'77GHz radar transceivers + MCUs', srcType:'Press Release', srcDetail:'NXP/Freescale press release (media.nxp.com); not in Continental or NXP annual filings'},
+    {from:'nxp', to:'vw', label:'Radar ICs / secure connectivity / MCUs', srcType:'Inferred', srcDetail:'VW names no chip suppliers; NXP auto products match VW needs'},
+    {from:'stmicro', to:'stellantis', label:'SiC MOSFETs / MCUs / SoCs', srcType:'Press Release', srcDetail:'Stellantis semiconductor strategy press release Jul 2023. NOT in Stellantis 20-F or STMicro 20-F'},
+    {from:'stmicro', to:'bmw', label:'Automotive MCUs', srcType:'Inferred', srcDetail:'BMW names no chip suppliers; link inferred from STMicro auto product portfolio'},
+    {from:'bosch', to:'bmw', label:'MEMS sensors / power semis / ESP', srcType:'Filing', srcDetail:'BMW AR 2025 p.58 mentions Bosch as HERE shareholder. Supplier relationship inferred from industry structure'},
+    {from:'bosch', to:'vw', label:'MEMS sensors / power semis / steering', srcType:'Inferred', srcDetail:'VW names no Tier 1 suppliers; Bosch→VW inferred from industry structure'},
+    {from:'bosch', to:'stellantis', label:'MEMS / power / braking systems', srcType:'Inferred', srcDetail:'Stellantis names no component suppliers beyond Nexperia (20-F p.88)'},
+  ],
+};
+
+// SCENARIO CONFIG: impact multipliers per factory
+// multiplier: 1.0 = full propagation speed (worst case), >1.0 = slower (supply can partially reroute)
+const SCENARIOS = {
+  all:       { label:'ALL T2 offline (worst case)', factories:['nanya_pcb','kinsus','compeq','subtron','boardtek','phoenix'], multiplier: 1.0, shareImpact:'~40%+ combined', severity:'CATASTROPHIC' },
+  nanya_pcb: { label:'Nan Ya PCB (13.5% ABF)', factories:['nanya_pcb'], multiplier: 1.2, shareImpact:'13.5% ABF', severity:'SEVERE' },
+  kinsus:    { label:'Kinsus (~5-8% ABF)', factories:['kinsus'], multiplier: 1.8, shareImpact:'~5-8% ABF', severity:'MODERATE' },
+  compeq:    { label:'Compeq (10.3% BT only)', factories:['compeq'], multiplier: 3.0, shareImpact:'10.3% BT (not ABF)', severity:'LOW-MODERATE' },
+  subtron:   { label:'Subtron (SiP, <2%)', factories:['subtron'], multiplier: 5.0, shareImpact:'<2% niche SiP', severity:'LOW' },
+  boardtek:  { label:'Boardtek (IC sub/PCB, <2%)', factories:['boardtek'], multiplier: 4.0, shareImpact:'<2% server PCB', severity:'LOW' },
+  phoenix:   { label:'Phoenix Pioneer (FCCSP/SiP, <2%)', factories:['phoenix'], multiplier: 5.0, shareImpact:'<2% niche FCCSP/SiP', severity:'LOW' },
+};
+
+let activeScenario = 'all';
+let stoppageTimes = {};
+let simRunning = false;
+let simWeek = 0;
+let simInterval = null;
+let selectedNode = null;
+let offlineFactories = new Set();
+
+function changeScenario() {
+  activeScenario = document.getElementById('scenario-select').value;
+  resetSimulation();
+  recompute();
+  buildGraph();
+}
+
+function toggleDefinitions() {
+  const el = document.getElementById('tier-defs');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  document.getElementById('btn-defs').classList.toggle('active', el.style.display !== 'none');
+}
+
+function recompute() {
+  const sc = SCENARIOS[activeScenario];
+  offlineFactories = new Set(sc.factories);
+  stoppageTimes = {};
+
+  const tierOrder = ['origin','integrator','osat','idm','oem'];
+  tierOrder.forEach(tier => {
+    DATA.nodes.filter(n => n.tier === tier).forEach(n => {
+      if (n.tier === 'origin') {
+        stoppageTimes[n.id] = offlineFactories.has(n.id) ? 0 : Infinity;
+        return;
+      }
+      // Only consider edges from nodes that are actually affected
+      const inbound = DATA.edges.filter(e => e.to === n.id && stoppageTimes[e.from] !== undefined && stoppageTimes[e.from] !== Infinity);
+      if (inbound.length === 0) {
+        stoppageTimes[n.id] = Infinity; // not affected
+        return;
+      }
+      const earliestFail = Math.min(...inbound.map(e => stoppageTimes[e.from]));
+      stoppageTimes[n.id] = earliestFail + (n.buffer * sc.multiplier);
+    });
+  });
+
+  // Update subtitle
+  const subtitle = document.querySelector('#header .subtitle');
+  if (activeScenario === 'all') {
+    subtitle.innerHTML = 'ALL Taiwan T2 substrate factories offline for 4 weeks &mdash; worst case scenario &mdash; <span style="color:#ff4060;">~40%+ global supply impact</span>';
+  } else {
+    subtitle.innerHTML = `<strong>${sc.label}</strong> offline for 4 weeks &mdash; <span style="color:#ffa040;">${sc.shareImpact} global supply impact</span> &mdash; Severity: <strong>${sc.severity}</strong>`;
+  }
+}
+
+function buildGraph() {
+  const cols = document.getElementById('tier-columns');
+  cols.innerHTML = '';
+  const sc = SCENARIOS[activeScenario];
+
+  DATA.tiers.forEach(tier => {
+    const col = document.createElement('div');
+    col.className = 'tier-col';
+    const label = document.createElement('div');
+    label.className = 'tier-label';
+    label.textContent = tier.label;
+    col.appendChild(label);
+
+    const nodesDiv = document.createElement('div');
+    nodesDiv.className = 'tier-nodes';
+
+    DATA.nodes.filter(n => n.tier === tier.key).forEach(node => {
+      const el = document.createElement('div');
+      el.className = 'node';
+      el.id = 'node-' + node.id;
+      el.style.borderLeftColor = tier.color;
+      el.style.borderLeftWidth = '3px';
+      el.onclick = () => openPanel(node);
+      el.onmouseenter = () => highlightPaths(node.id);
+      el.onmouseleave = () => clearHighlights();
+
+      const isOffline = node.tier === 'origin' && offlineFactories.has(node.id);
+      const isUnaffected = node.tier === 'origin' && !offlineFactories.has(node.id);
+      const st = stoppageTimes[node.id];
+      const affected = st !== undefined && st !== Infinity;
+
+      if (isUnaffected) el.style.opacity = '0.35';
+
+      let html = `<div class="name">${node.name}</div><div class="role">${node.role}</div>`;
+      html += `<div class="country">${node.country}</div>`;
+      if (node.score !== null) {
+        const cls = node.score >= 20 ? 'score-critical' : node.score >= 18 ? 'score-high' : node.score >= 15 ? 'score-moderate' : 'score-low';
+        html += `<div class="score-badge ${cls}">${node.score}/25 ${node.scoreLabel}</div>`;
+      }
+      if (isOffline) {
+        html += `<div class="buffer-badge" style="background:rgba(227,25,55,0.2);color:#ff4060;border-color:rgba(227,25,55,0.3);">OFFLINE wk 0</div>`;
+      } else if (isUnaffected) {
+        html += `<div class="buffer-badge" style="background:rgba(60,60,60,0.3);color:#666;border-color:rgba(60,60,60,0.3);">Not in scenario</div>`;
+      } else if (affected && node.tier !== 'origin') {
+        const adjBuffer = (node.buffer * sc.multiplier);
+        html += `<div class="buffer-badge">Buffer: ~${adjBuffer.toFixed(1)}wk [${node.bufferConf}] &bull; Stops: wk ${st.toFixed(1)}</div>`;
+      } else if (!affected && node.tier !== 'origin') {
+        html += `<div class="buffer-badge" style="background:rgba(74,154,74,0.15);color:#4a8a4a;border-color:rgba(74,154,74,0.2);">Not affected</div>`;
+        el.style.opacity = '0.5';
+      }
+      el.innerHTML = html;
+      nodesDiv.appendChild(el);
+    });
+
+    col.appendChild(nodesDiv);
+    cols.appendChild(col);
+  });
+
+  buildTimeline();
+  buildRanking();
+  requestAnimationFrame(drawEdges);
+}
+
+function buildTimeline() {
+  const tl = document.getElementById('timeline');
+  const existing = tl.querySelectorAll('.tl-mark');
+  existing.forEach(e => e.remove());
+  const maxWk = Math.min(Math.ceil(SCENARIOS[activeScenario].multiplier * 6), 50);
+  const step = maxWk <= 10 ? 1 : maxWk <= 20 ? 2 : 5;
+  for (let w = 0; w <= maxWk; w += step) {
+    const pct = (w / maxWk) * 100;
+    const mark = document.createElement('div');
+    mark.className = 'tl-mark';
+    mark.id = 'tl-wk-' + w;
+    mark.style.left = pct + '%';
+    mark.innerHTML = `<div class="dot"></div>Wk ${w}`;
+    tl.appendChild(mark);
+  }
+}
+
+function buildRanking() {
+  const ranking = document.getElementById('ranking');
+  const sc = SCENARIOS[activeScenario];
+  const idmOem = DATA.nodes.filter(n => n.tier === 'idm' || n.tier === 'oem');
+  const affected = idmOem.filter(n => stoppageTimes[n.id] !== undefined && stoppageTimes[n.id] !== Infinity);
+  const unaffected = idmOem.filter(n => stoppageTimes[n.id] === undefined || stoppageTimes[n.id] === Infinity);
+  affected.sort((a, b) => stoppageTimes[a.id] - stoppageTimes[b.id]);
+
+  let html = `<h2>Predicted Stoppage Order &mdash; ${sc.label} &mdash; <span style="font-size:12px;font-weight:400;color:#5a7a8a;">Impact: ${sc.shareImpact}, Severity: ${sc.severity}</span></h2><table>`;
+  html += '<tr><th>#</th><th>Company</th><th>Type</th><th>Base Buffer</th><th>Adjusted Buffer</th><th>Stops At</th><th>Time to Stoppage</th><th>Score</th></tr>';
+
+  affected.forEach((n, i) => {
+    const st = stoppageTimes[n.id];
+    const barW = Math.min(st / 14 * 200, 200);
+    const type = n.tier === 'oem' ? 'OEM' : (n.role.includes('Fabless') || n.role.includes('fabless') ? 'Tier 1 (Fabless)' : 'IDM');
+    const scoreTxt = n.score ? `${n.score}/25` : '-';
+    const adjBuf = (n.buffer * sc.multiplier).toFixed(1);
+    html += `<tr onclick="openPanel(DATA.nodes.find(x=>x.id==='${n.id}'))" style="cursor:pointer;">`;
+    html += `<td class="rank">${i + 1}</td>`;
+    html += `<td style="color:#e0e8f0;font-weight:600;">${n.name}</td>`;
+    html += `<td>${type}</td>`;
+    html += `<td>~${n.buffer} wk [${n.bufferConf}]</td>`;
+    html += `<td>~${adjBuf} wk (×${sc.multiplier})</td>`;
+    html += `<td style="color:#e31937;font-weight:600;">Week ${st.toFixed(1)}</td>`;
+    html += `<td><span class="stoppage-bar" style="width:${barW}px;"></span>${st.toFixed(1)} wk</td>`;
+    html += `<td>${scoreTxt}</td>`;
+    html += '</tr>';
+  });
+
+  if (unaffected.length > 0) {
+    html += `<tr><td colspan="8" style="padding:8px 16px;color:#3a5a6a;font-size:11px;font-style:italic;border-top:1px solid #1a2a3a;">Not affected in this scenario: ${unaffected.map(n=>n.name).join(', ')}</td></tr>`;
+  }
+
+  html += '</table>';
+
+  if (sc.multiplier > 1) {
+    html += `<div style="padding:12px 20px;font-size:11px;color:#5a7a8a;border-top:1px solid #1a2a3a;">`;
+    html += `<strong>Multiplier ×${sc.multiplier}:</strong> When only one T2 factory goes offline (vs all), downstream integrators can partially reroute supply from unaffected sources. `;
+    html += `The multiplier extends buffer estimates to reflect this partial substitution capacity. ×1.0 = no rerouting possible (all sources down). ×5.0 = most supply reroutable (niche factory, alternative sources available).`;
+    html += `</div>`;
+  }
+
+  ranking.innerHTML = html;
+}
+
+function drawEdges() {
+  const svg = document.getElementById('edges-svg');
+  const graph = document.getElementById('graph');
+  svg.setAttribute('width', graph.scrollWidth);
+  svg.setAttribute('height', graph.scrollHeight);
+  svg.innerHTML = '';
+
+  DATA.edges.forEach(edge => {
+    const fromEl = document.getElementById('node-' + edge.from);
+    const toEl = document.getElementById('node-' + edge.to);
+    if (!fromEl || !toEl) return;
+
+    const fr = fromEl.getBoundingClientRect();
+    const tr = toEl.getBoundingClientRect();
+    const gr = graph.getBoundingClientRect();
+
+    const x1 = fr.right - gr.left;
+    const y1 = fr.top + fr.height / 2 - gr.top;
+    const x2 = tr.left - gr.left;
+    const y2 = tr.top + tr.height / 2 - gr.top;
+
+    const cpx = (x1 + x2) / 2;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', `M${x1},${y1} C${cpx},${y1} ${cpx},${y2} ${x2},${y2}`);
+    const srcColor = edge.srcType === 'Filing' ? '#4aa3f3' : edge.srcType === 'Press Release' ? '#6aba6a' : edge.srcType === 'Website' ? '#ffc107' : edge.srcType === 'Industry Report' ? '#c060d0' : '#ff7043';
+    if (!edge.abf) path.setAttribute('stroke', srcColor);
+    path.setAttribute('class', 'edge-line' + (edge.abf ? ' abf' : ''));
+    path.setAttribute('data-from', edge.from);
+    path.setAttribute('data-to', edge.to);
+    path.setAttribute('data-srctype', edge.srcType || 'Inferred');
+    svg.appendChild(path);
+  });
+}
+
+function highlightPaths(nodeId) {
+  const visited = new Set();
+  function traceBack(id) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    DATA.edges.filter(e => e.to === id).forEach(e => traceBack(e.from));
+  }
+  function traceForward(id) {
+    if (visited.has(id)) return;
+    visited.add(id);
+    DATA.edges.filter(e => e.from === id).forEach(e => traceForward(e.to));
+  }
+  traceBack(nodeId);
+  traceForward(nodeId);
+
+  document.querySelectorAll('.edge-line').forEach(p => {
+    const from = p.getAttribute('data-from');
+    const to = p.getAttribute('data-to');
+    if (visited.has(from) && visited.has(to)) p.classList.add('highlighted');
+    else p.style.opacity = '0.1';
+  });
+  document.querySelectorAll('.node').forEach(n => {
+    const id = n.id.replace('node-', '');
+    if (!visited.has(id)) n.style.opacity = '0.3';
+  });
+}
+
+function clearHighlights() {
+  document.querySelectorAll('.edge-line').forEach(p => { p.classList.remove('highlighted'); p.style.opacity = ''; });
+  document.querySelectorAll('.node').forEach(n => { n.style.opacity = ''; });
+}
+
+function highlightCriticalPath() {
+  const continental = DATA.nodes.find(n => n.id === 'continental');
+  if (continental) highlightPaths('continental');
+  setTimeout(clearHighlights, 4000);
+}
+
+// SIMULATION
+function toggleSimulation() {
+  if (simRunning) { pauseSimulation(); return; }
+  simRunning = true;
+  simWeek = 0;
+  document.getElementById('btn-sim').textContent = 'Pause';
+  document.getElementById('btn-sim').classList.add('active');
+  simInterval = setInterval(simTick, 800);
+  simTick();
+}
+
+function pauseSimulation() {
+  simRunning = false;
+  clearInterval(simInterval);
+  document.getElementById('btn-sim').textContent = 'Resume';
+  document.getElementById('btn-sim').classList.remove('active');
+}
+
+function resetSimulation() {
+  simRunning = false;
+  clearInterval(simInterval);
+  simWeek = 0;
+  document.getElementById('btn-sim').textContent = 'Simulate Disruption';
+  document.getElementById('btn-sim').classList.remove('active');
+  document.getElementById('sim-status').innerHTML = 'Ready &mdash; click Simulate to begin';
+  document.getElementById('tl-progress').style.width = '0';
+  document.querySelectorAll('.tl-mark').forEach(m => m.classList.remove('hit'));
+  document.querySelectorAll('.node').forEach(n => {
+    n.classList.remove('sim-safe', 'sim-warning', 'sim-stopped', 'sim-offline');
+  });
+  document.querySelectorAll('.edge-line').forEach(p => p.classList.remove('sim-active'));
+}
+
+function simTick() {
+  const maxWeek = Math.min(SCENARIOS[activeScenario].multiplier * 6, 50);
+  simWeek += 0.5;
+  if (simWeek > maxWeek) { pauseSimulation(); return; }
+
+  document.getElementById('tl-progress').style.width = (simWeek / maxWeek * 100) + '%';
+  const sc = SCENARIOS[activeScenario];
+  document.getElementById('sim-status').innerHTML = `<strong>${sc.label}</strong> &mdash; <span id="sim-week">Week ${simWeek.toFixed(1)}</span>`;
+
+  document.querySelectorAll('.tl-mark').forEach(m => {
+    const wk = parseInt(m.id.replace('tl-wk-',''));
+    if (!isNaN(wk) && wk <= simWeek) m.classList.add('hit');
+  });
+
+  DATA.nodes.forEach(node => {
+    const el = document.getElementById('node-' + node.id);
+    if (!el) return;
+    const st = stoppageTimes[node.id];
+    el.classList.remove('sim-safe', 'sim-warning', 'sim-stopped', 'sim-offline');
+
+    if (node.tier === 'origin' && offlineFactories.has(node.id)) { el.classList.add('sim-offline'); return; }
+    if (node.tier === 'origin' && !offlineFactories.has(node.id)) return;
+    if (st === Infinity || st === undefined) { el.classList.add('sim-safe'); return; }
+    if (st <= simWeek) el.classList.add('sim-stopped');
+    else if (st <= simWeek + 1) el.classList.add('sim-warning');
+    else el.classList.add('sim-safe');
+  });
+
+  DATA.edges.forEach(edge => {
+    const lines = document.querySelectorAll(`.edge-line[data-from="${edge.from}"][data-to="${edge.to}"]`);
+    const fromSt = stoppageTimes[edge.from];
+    lines.forEach(l => {
+      if (fromSt <= simWeek) l.classList.add('sim-active');
+      else l.classList.remove('sim-active');
+    });
+  });
+
+  const stoppedNow = DATA.nodes.filter(n => n.tier !== 'origin' && stoppageTimes[n.id] !== Infinity && stoppageTimes[n.id] <= simWeek);
+  if (stoppedNow.length > 0) {
+    const names = stoppedNow.map(n => n.name).join(', ');
+    document.getElementById('sim-status').innerHTML += ` &mdash; <span style="color:#ff4060;">STOPPED: ${names}</span>`;
+  }
+}
+
+function srcTypeClass(type) {
+  if (!type) return 'src-inferred';
+  const t = type.toLowerCase();
+  if (t === 'filing') return 'src-filing';
+  if (t === 'press release') return 'src-press';
+  if (t === 'website') return 'src-website';
+  if (t === 'industry report') return 'src-industry';
+  return 'src-inferred';
+}
+
+// DETAIL PANEL
+function openPanel(node) {
+  selectedNode = node;
+  document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+  document.getElementById('node-' + node.id)?.classList.add('selected');
+
+  document.getElementById('panel-title').textContent = node.name;
+  document.getElementById('panel-subtitle').textContent = `${node.country} — ${node.role}`;
+
+  let html = '';
+
+  // Score + buffer
+  if (node.score !== null || node.buffer !== undefined) {
+    html += '<div class="panel-section"><h3>Risk Profile</h3>';
+    if (node.score !== null) {
+      const cls = node.score >= 20 ? 'score-critical' : node.score >= 18 ? 'score-high' : node.score >= 15 ? 'score-moderate' : 'score-low';
+      html += `<div style="margin-bottom:8px;"><span class="score-badge ${cls}" style="position:static;font-size:12px;padding:4px 10px;">${node.score}/25 ${node.scoreLabel}</span></div>`;
+    }
+    const st = stoppageTimes[node.id];
+    const sc = SCENARIOS[activeScenario];
+    if (node.tier === 'origin' && offlineFactories.has(node.id)) {
+      html += '<div class="evidence-item" style="border-color:rgba(227,25,55,0.3);"><span class="tag" style="background:rgba(227,25,55,0.3);color:#ff4060;">DISRUPTION ORIGIN</span> This factory goes offline at Week 0 in the current scenario. All downstream supply chains are affected.</div>';
+    } else if (node.tier === 'origin') {
+      html += '<div class="evidence-item"><span class="tag" style="background:rgba(74,154,74,0.2);color:#6aba6a;">NOT IN SCENARIO</span> This factory remains operational in the current scenario. It is not contributing to the disruption.</div>';
+    } else if (st !== Infinity && st !== undefined) {
+      const adjBuf = (node.buffer * sc.multiplier).toFixed(1);
+      html += `<div class="evidence-item"><strong>Base buffer:</strong> ~${node.buffer} weeks <span class="tag tag-${node.bufferConf.toLowerCase()}">${node.bufferConf}</span><br>`;
+      if (sc.multiplier !== 1) html += `<strong>Adjusted buffer (×${sc.multiplier}):</strong> ~${adjBuf} weeks <span style="font-size:10px;color:#5a7a8a;">(partial supply rerouting)</span><br>`;
+      html += `<strong>Predicted stoppage:</strong> <span style="color:#e31937;font-weight:700;">Week ${st.toFixed(1)}</span></div>`;
+    } else {
+      html += '<div class="evidence-item"><span class="tag" style="background:rgba(74,154,74,0.2);color:#6aba6a;">NOT AFFECTED</span> This company is not in the disruption path for the current scenario. No supply chain connection to the offline factory.</div>';
+    }
+    html += '</div>';
+  }
+
+  // Supply chain paths
+  html += '<div class="panel-section"><h3>Supply Chain Connections</h3>';
+  const inbound = DATA.edges.filter(e => e.to === node.id);
+  const outbound = DATA.edges.filter(e => e.from === node.id);
+  if (inbound.length > 0) {
+    html += '<div style="font-size:11px;color:#4a7a8a;margin-bottom:6px;">RECEIVES FROM:</div>';
+    inbound.forEach(e => {
+      const fromNode = DATA.nodes.find(n => n.id === e.from);
+      const srcCls = srcTypeClass(e.srcType);
+      html += `<div class="supply-path">${fromNode?.name || e.from} <span class="path-arrow">→</span> <strong>${node.name}</strong><br><span style="font-size:11px;color:#6a8a9a;">${e.label}</span><br><span class="tag ${srcCls}" style="margin-top:4px;display:inline-block;">${e.srcType || 'Unknown'}</span> <span style="font-size:10px;color:#4a6a7a;">${e.srcDetail || ''}</span></div>`;
+    });
+  }
+  if (outbound.length > 0) {
+    html += '<div style="font-size:11px;color:#4a7a8a;margin-bottom:6px;margin-top:12px;">SUPPLIES TO:</div>';
+    outbound.forEach(e => {
+      const toNode = DATA.nodes.find(n => n.id === e.to);
+      const srcCls = srcTypeClass(e.srcType);
+      html += `<div class="supply-path"><strong>${node.name}</strong> <span class="path-arrow">→</span> ${toNode?.name || e.to}<br><span style="font-size:11px;color:#6a8a9a;">${e.label}</span><br><span class="tag ${srcCls}" style="margin-top:4px;display:inline-block;">${e.srcType || 'Unknown'}</span> <span style="font-size:10px;color:#4a6a7a;">${e.srcDetail || ''}</span></div>`;
+    });
+  }
+  html += '</div>';
+
+  // Evidence
+  if (node.evidence && node.evidence.length > 0) {
+    html += '<div class="panel-section"><h3>Evidence & Data Sources</h3>';
+    node.evidence.forEach(ev => {
+      const tagCls = ev.tag === 'P' ? 'tag-p' : ev.tag === 'I' ? 'tag-i' : 'tag-s';
+      const tagLabel = ev.tag === 'P' ? 'PUBLIC' : ev.tag === 'I' ? 'INFERRED' : 'INDUSTRY STD';
+      html += `<div class="evidence-item"><span class="tag ${tagCls}">${tagLabel}</span> ${ev.text}`;
+      if (ev.source) html += `<br><a href="${ev.source}" target="_blank" rel="noopener">${ev.source.replace(/https?:\/\/(www\.)?/, '').substring(0, 60)}...</a>`;
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  // Documents
+  if (node.docs && node.docs.length > 0) {
+    html += '<div class="panel-section"><h3>Downloaded Reports</h3>';
+    html += '<div style="font-size:10px;color:#3a6a7a;margin-bottom:8px;">Click to open from local folder (EU_Auto_Substrate_Reports/)</div>';
+    node.docs.forEach(doc => {
+      const icon = doc.file.endsWith('.htm') ? '🌐' : '📄';
+      html += `<a class="doc-link" href="${doc.file}" target="_blank"><span class="icon">${icon}</span><div><strong>${doc.file}</strong><br><span style="color:#5a7a8a;">${doc.desc}</span></div></a>`;
+    });
+    html += '</div>';
+  }
+
+  document.getElementById('panel-body').innerHTML = html;
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('detail-panel').classList.remove('open');
+  document.querySelectorAll('.node').forEach(n => n.classList.remove('selected'));
+  selectedNode = null;
+}
+
+// DRAGGABLE LEGEND
+(function() {
+  const el = document.getElementById('legend');
+  let dragging = false, startX, startY, origX, origY;
+  el.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    const rect = el.getBoundingClientRect();
+    origX = rect.left; origY = rect.top;
+    el.style.transition = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    el.style.left = (origX + dx) + 'px';
+    el.style.top = (origY + dy) + 'px';
+    el.style.bottom = 'auto';
+    el.style.right = 'auto';
+  });
+  document.addEventListener('mouseup', () => { dragging = false; el.style.transition = ''; });
+  el.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    dragging = true; startX = t.clientX; startY = t.clientY;
+    const rect = el.getBoundingClientRect();
+    origX = rect.left; origY = rect.top;
+    el.style.transition = 'none';
+  }, {passive: true});
+  document.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX, dy = t.clientY - startY;
+    el.style.left = (origX + dx) + 'px';
+    el.style.top = (origY + dy) + 'px';
+    el.style.bottom = 'auto';
+    el.style.right = 'auto';
+  }, {passive: true});
+  document.addEventListener('touchend', () => { dragging = false; el.style.transition = ''; });
+})();
+
+// INIT
+document.addEventListener('DOMContentLoaded', () => {
+  recompute();
+  buildGraph();
+  window.addEventListener('resize', () => requestAnimationFrame(drawEdges));
+  window.addEventListener('scroll', () => requestAnimationFrame(drawEdges));
+});
+</script>
+</body>
+</html>
